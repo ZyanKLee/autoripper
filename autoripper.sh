@@ -1,4 +1,4 @@
-#!/bin/bash -x
+#!/bin/bash +x
 
 
 # autoripper wrapper script to check if audio cd is new (as in: yet unripped)
@@ -147,49 +147,63 @@ function do_ripping {
 
 # MAIN
 
-MULTIPLIER=1 # generates from 0 - 9.99999
-SLEEP=$( echo "scale=1; $RANDOM*$MULTIPLIER/32767" | bc )
+function main {
 
-sleep $SLEEP
+	MULTIPLIER=1 # generates from 0 - 9.99999
+	SLEEP=$( echo "scale=1; $RANDOM*$MULTIPLIER/32767" | bc )
 
-if [ -f $LOCKFILE ]
-then
-	lockfile-check --use-pid --lock-name $LOCKFILE
-	LOCKCHECK=$?
+	sleep $SLEEP
 
-	LOCKPID=$(cat $LOCKFILE)
-
-	# if cat $LOCKFILE still running?
-	if ( [ $( ps -p $LOCKPID -o pid,comm --no-heading | grep -q 'autoripper' ; echo $? ) -eq 0 ] || [ $( ps auxwww | grep -v grep | grep -q 'abcde' ; echo $? ) -eq 0 ] )
+	if [ -f $LOCKFILE ]
 	then
-		exit 0 # not running twice, die!
+		lockfile-check --use-pid --lock-name $LOCKFILE
+		LOCKCHECK=$?
+
+		LOCKPID=$(cat $LOCKFILE)
+
+		# if cat $LOCKFILE still running?
+		if ( [ $( ps -p $LOCKPID -o pid,comm --no-heading | grep -q 'autoripper' ; echo $? ) -eq 0 ] || [ $( ps auxwww | grep -v grep | grep -q 'abcde' ; echo $? ) -eq 0 ] )
+		then
+			exit 0 # not running twice, die!
+		fi
+
+		# anything from here should only happen if autoripper or abcde are not running atm
+
+		lockfile-remove --lock-name $LOCKFILE # removing stale lockfile
 	fi
 
-	# anything from here should only happen if autoripper or abcde are not running atm
+	lockfile-create --use-pid --lock-name $LOCKFILE # creating lockfile
 
-	lockfile-remove --lock-name $LOCKFILE # removing stale lockfile
-fi
+	get_cddb_info
 
-lockfile-create --use-pid --lock-name $LOCKFILE # creating lockfile
+	check_local
 
-get_cddb_info
-
-check_local
-
-case ${LOCALCHECK} in
-	"incomplete")
-		select_tracks
-		do_ripping
-		;;
-	"complete")
-		do_eject
-		;;
-	"newalbum")
-		do_ripping
-		;;
-	*)
-		do_eject
-		;;
-esac
+	case ${LOCALCHECK} in
+		"incomplete")
+			select_tracks
+			do_ripping
+			;;
+		"complete")
+			do_eject
+			;;
+		"newalbum")
+			do_ripping
+			;;
+		*)
+			do_eject
+			;;
+	esac
 
 #lockfile-remove --lock-name $LOCKFILE # removing lockfile after ripping ends in abcde.sh
+}
+
+
+
+if [ -z $TERM ]
+then
+	# if not run via terminal, log everything into a log file
+	main 2>&1 >> $LOGFILE
+else
+	# run via terminal, only output to screen
+	main
+fi
